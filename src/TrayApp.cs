@@ -2,7 +2,9 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 using Microsoft.Win32;
 
 namespace ScreenBreak
@@ -22,6 +24,8 @@ namespace ScreenBreak
         private readonly Timer timer;
         private readonly ToolStripMenuItem statusItem, usageItem;
         private SettingsForm settingsForm;
+        private readonly StatusForm statusPanel = new StatusForm();
+        private readonly RegisteredWaitHandle showWait;
 
         private readonly OverlaySet main = new OverlaySet();
         private readonly OverlaySet alert = new OverlaySet();
@@ -39,7 +43,7 @@ namespace ScreenBreak
         private DateTime angryUntil, limitUntil, lastLimitAlert = DateTime.MinValue, snoozeUntil = DateTime.MinValue;
         private int angryCount;
 
-        public TrayApp(bool startWithPreview)
+        public TrayApp(bool startWithPreview, EventWaitHandle showSignal)
         {
             s = Settings.Load();
             usage = new TimeLog(Path.Combine(Settings.DataDir, "usage.log"), TimeSpan.FromHours(24));
@@ -60,7 +64,18 @@ namespace ScreenBreak
             menu.Opening += delegate { RefreshStatus(); };
 
             tray = new NotifyIcon { Icon = MakeIcon(), ContextMenuStrip = menu, Visible = true, Text = "ScreenBreak" };
-            tray.DoubleClick += delegate { ShowSettings(); };
+            tray.MouseClick += (sender, e) => { if (e.Button == MouseButtons.Left) statusPanel.Toggle(Snapshot()); };
+
+            statusPanel.BreakNowClicked += delegate { StartBreakNow(); };
+            statusPanel.SettingsClicked += delegate { ShowSettings(); };
+            statusPanel.ExitClicked += delegate { ExitThread(); };
+            // Launching ScreenBreak again (e.g. from the Start Menu) signals this copy to show the panel.
+            IntPtr panelHandle = statusPanel.Handle; // create the handle now so BeginInvoke works
+            showWait = ThreadPool.RegisterWaitForSingleObject(showSignal, delegate
+            {
+                try { statusPanel.BeginInvoke((MethodInvoker)delegate { statusPanel.ShowPanel(Snapshot()); }); }
+                catch (InvalidOperationException) { } // shutting down
+            }, null, Timeout.Infinite, false);
 
             bypass.Confirmed += OnBypass;
             if (s.FirstRun && !startWithPreview)
@@ -112,6 +127,11 @@ namespace ScreenBreak
             alert.BringToTop();
             corner.BringToTop();
             if (bypass.Visible) Native.BringToTop(bypass.Handle);
+            if (statusPanel.Visible)
+            {
+                Native.BringToTop(statusPanel.Handle);
+                statusPanel.UpdateStatus(Snapshot());
+            }
 
             RefreshStatus();
         }
@@ -361,6 +381,50 @@ namespace ScreenBreak
             if (tray.Text != tip) tray.Text = tip;
         }
 
+        private StatusSnapshot Snapshot()
+        {
+            var st = new StatusSnapshot();
+            switch (phase)
+            {
+                case Phase.Ramp:
+                    st.Headline = "Break starts in";
+                    st.Big = Fmt(RampTotal - rampSec);
+                    st.Progress = RampTotal <= 0 ? 1 : rampSec / RampTotal;
+                    break;
+                case Phase.Break:
+                    st.Headline = "On a break, time left";
+                    st.Big = Fmt(BreakTotal - breakSec);
+                    st.Progress = breakSec / BreakTotal;
+                    break;
+                case Phase.Bedtime:
+                    st.Headline = "It's bedtime, until " + s.WakeTime;
+                    st.Big = DateTime.Now.ToString("HH:mm");
+                    break;
+                default:
+                    st.Headline = "Next break in";
+                    st.Big = Fmt(s.WorkMinutes * 60.0 - workSec);
+                    st.Progress = workSec / (s.WorkMinutes * 60.0);
+                    break;
+            }
+            st.CanBreakNow = phase == Phase.Working;
+
+            int minutes = usage.CountSince(DateTime.UtcNow.AddHours(-24));
+            st.ScreenTime = FmtHours(minutes) + (s.DailyLimitEnabled ? " of " + s.DailyLimitHours + "h" : "");
+            st.Skips = skips.CountSince(DateTime.UtcNow.AddHours(-2)).ToString();
+
+            if (!s.BedtimeEnabled) st.Bedtime = "Off";
+            else if (phase == Phase.Bedtime) st.Bedtime = "Now";
+            else
+            {
+                DateTime now = DateTime.Now;
+                DateTime next = now.Date + Settings.ParseTime(s.Bedtime, new TimeSpan(22, 30, 0));
+                if (next <= now) next = next.AddDays(1);
+                TimeSpan left = next - now;
+                st.Bedtime = s.Bedtime + " (in " + (int)left.TotalHours + "h " + left.Minutes.ToString("00") + "m)";
+            }
+            return st;
+        }
+
         private void ShowSettings()
         {
             if (settingsForm != null && !settingsForm.IsDisposed)
@@ -435,6 +499,8 @@ namespace ScreenBreak
         protected override void ExitThreadCore()
         {
             timer.Stop();
+            showWait.Unregister(null);
+            statusPanel.Dispose();
             main.Hide();
             alert.Hide();
             corner.Hide();

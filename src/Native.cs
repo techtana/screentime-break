@@ -58,6 +58,23 @@ namespace ScreenBreak
             catch (EntryPointNotFoundException) { }
         }
 
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+        /// <summary>Windows 11 rounded corners for a borderless window (no-op on Windows 10).</summary>
+        public static void RoundCorners(IntPtr hwnd)
+        {
+            const int DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2;
+            int pref = DWMWCP_ROUND;
+            try { DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int)); }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+        }
+
+        [DllImport("user32.dll")]
+        public static extern bool AllowSetForegroundWindow(int processId);
+        public const int ASFW_ANY = -1;
+
         public static void BringToTop(IntPtr hwnd)
         {
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);

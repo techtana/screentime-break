@@ -78,8 +78,17 @@ To ship a new version, change the version numbers in `src\AssemblyInfo.cs` and
 
 ## Use
 
-- Open ScreenBreak from the Start Menu (or run `bin\ScreenBreak.exe`). A green clock icon appears in the tray.
-- Right-click the icon to see status, take a break now, preview the popup, or open settings.
+- Open ScreenBreak from the Start Menu (or run `bin\ScreenBreak.exe`). It runs in the
+  background with no window. Its green clock icon sits in the tray. On Windows 11 new
+  icons start in the hidden-icons area under the **^** arrow; drag it onto the taskbar
+  to keep it in view.
+- **Click the icon** to open the status panel. It shows the time to the next break (or
+  what's left of the current one), screen time in the last 24 hours against your limit,
+  recent skips and bedtime. It has **Take a break now**, **Settings** and **Exit**
+  buttons. It closes when you click elsewhere or press Esc.
+- Opening ScreenBreak from the Start Menu while it's already running opens the same panel.
+- **Right-click the icon** for a quick menu: status, take a break now, preview the popup,
+  settings and exit.
 - To try the popup right away, run `ScreenBreak.exe --preview` (20 s ramp, 15 s break).
   Settings also has an **Apply & preview** button.
 - On first run it asks whether to start with Windows. You can change that any time with
