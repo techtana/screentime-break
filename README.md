@@ -28,6 +28,28 @@ that ships with Windows (.NET Framework 4.8).
   corner of your choice. At bedtime a full-screen night popup stays up until wake-up time.
   The skip button snoozes it for 15 minutes, and that counts as a skip.
 
+## Install
+
+Run **`ScreenBreak-Setup.exe`** and click **Install**.
+
+- It installs for your Windows account only, to `%LOCALAPPDATA%\Programs\ScreenBreak`,
+  so it needs no admin rights.
+- It adds a Start Menu shortcut, and can add a desktop shortcut and start ScreenBreak with Windows.
+- Running a newer setup over an old install updates it and keeps your settings.
+- To remove it: **Settings > Apps > Installed apps > ScreenBreak > Uninstall**. You'll be
+  asked whether to also delete your settings and screen-time history.
+
+The setup file isn't code-signed. If you download it from somewhere, Windows SmartScreen
+may say "Windows protected your PC". Click **More info > Run anyway**.
+
+Setup also runs from the command line, for scripted installs:
+
+| Command | What it does |
+|---|---|
+| `ScreenBreak-Setup.exe /quiet` | Install silently, with start-with-Windows on |
+| `uninstall.exe /uninstall /quiet` | Remove silently and keep your settings (run it from the install folder) |
+| `uninstall.exe /uninstall /quiet /purge` | Remove silently and delete settings and history |
+
 ## Build
 
 From PowerShell in this folder:
@@ -36,17 +58,25 @@ From PowerShell in this folder:
 .\build.ps1
 ```
 
-If scripts are blocked on your PC, run the compiler directly:
+This makes two files in `bin\`:
+
+- `ScreenBreak.exe` is the app itself. It runs from anywhere, with no install needed.
+- `ScreenBreak-Setup.exe` is the installer, with the app built in.
+
+`.\build.ps1 -Icon` also redraws `assets\ScreenBreak.ico` from `tools\IconGen.cs`.
+
+If PowerShell scripts are blocked on your PC, run them for this window only:
 
 ```powershell
-& "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /out:bin\ScreenBreak.exe /win32manifest:src\app.manifest /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll (Get-ChildItem src\*.cs).FullName
+powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-The result is `bin\ScreenBreak.exe`, a single file you can copy anywhere.
+To ship a new version, change the version numbers in `src\AssemblyInfo.cs` and
+`installer\Setup.cs`, then rebuild.
 
 ## Use
 
-- Run `bin\ScreenBreak.exe`. A green clock icon appears in the tray.
+- Open ScreenBreak from the Start Menu (or run `bin\ScreenBreak.exe`). A green clock icon appears in the tray.
 - Right-click the icon to see status, take a break now, preview the popup, or open settings.
 - To try the popup right away, run `ScreenBreak.exe --preview` (20 s ramp, 15 s break).
   Settings also has an **Apply & preview** button.

@@ -444,6 +444,10 @@ namespace ScreenBreak
 
         private static Icon MakeIcon()
         {
+            using (Stream ico = typeof(TrayApp).Assembly.GetManifestResourceStream("ScreenBreak.ico"))
+                if (ico != null) return new Icon(ico, SystemInformation.SmallIconSize);
+
+            // Fallback when built without the icon resource.
             using (var bmp = new Bitmap(32, 32))
             {
                 using (Graphics g = Graphics.FromImage(bmp))
