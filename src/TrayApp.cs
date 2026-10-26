@@ -266,8 +266,8 @@ namespace ScreenBreak
                 return;
             }
 
-            TimeSpan bed = Settings.ParseTime(s.Bedtime, new TimeSpan(22, 30, 0));
-            TimeSpan wake = Settings.ParseTime(s.WakeTime, new TimeSpan(7, 0, 0));
+            TimeSpan bed = s.BedtimeOfDay;
+            TimeSpan wake = s.WakeTimeOfDay;
             bool inWindow = InWindow(now.TimeOfDay, bed, wake);
 
             if (inWindow && now >= snoozeUntil)
@@ -443,7 +443,7 @@ namespace ScreenBreak
             else
             {
                 DateTime now = DateTime.Now;
-                DateTime next = now.Date + Settings.ParseTime(s.Bedtime, new TimeSpan(22, 30, 0));
+                DateTime next = now.Date + s.BedtimeOfDay;
                 if (next <= now) next = next.AddDays(1);
                 TimeSpan left = next - now;
                 st.Bedtime = s.Bedtime + " (in " + (int)left.TotalHours + "h " + left.Minutes.ToString("00") + "m)";

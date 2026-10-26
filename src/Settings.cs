@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
@@ -9,42 +10,44 @@ namespace ScreenBreak
     /// <summary>User settings, stored as key=value lines in %APPDATA%\ScreenBreak\settings.ini.</summary>
     public class Settings
     {
+        // Default values live in config\defaults.ini, which is embedded in the exe (see Defaults).
+
         // Break cycle
-        public int WorkMinutes = 60;
-        public int RampMinutes = 30;
-        public int StartOpacityPercent = 15;
-        public int MaxOpacityPercent = 90;
-        public int StartCoveragePercent = 30;
-        public int BreakMinutes = 10;
-        public bool BreakNeedsIdle = true;
+        public int WorkMinutes;
+        public int RampMinutes;
+        public int StartOpacityPercent;
+        public int MaxOpacityPercent;
+        public int StartCoveragePercent;
+        public int BreakMinutes;
+        public bool BreakNeedsIdle;
 
         // What counts as "away from the PC": the break countdown pauses and screen time isn't counted.
-        public int AwayMinutes = 5;
-        public bool AwayCountsController = true;      // controller input means you're still there
-        public bool AwayWhenLocked = true;            // locking the PC means away right away
-        public bool NotAwayWhileWatching = true;      // a video or full-screen app keeps you "present"
+        public int AwayMinutes;
+        public bool AwayCountsController;      // controller input means you're still there
+        public bool AwayWhenLocked;            // locking the PC means away right away
+        public bool NotAwayWhileWatching;      // a video or full-screen app keeps you "present"
 
         // Look
-        public bool UseCustomBackground = false;
-        public string BackgroundImage = "";
+        public bool UseCustomBackground;
+        public string BackgroundImage;
 
         // Skip button
-        public bool BypassEnabled = true;
+        public bool BypassEnabled;
 
         // Rolling 24h limit
-        public bool DailyLimitEnabled = true;
-        public int DailyLimitHours = 4;
-        public int DailyLimitRepeatMinutes = 30;
+        public bool DailyLimitEnabled;
+        public int DailyLimitHours;
+        public int DailyLimitRepeatMinutes;
 
         // Bedtime
-        public bool BedtimeEnabled = false;
-        public string Bedtime = "22:30";
-        public string WakeTime = "07:00";
-        public int BedtimeWarnMinutes = 120;
-        public string BedtimeCorner = "BottomRight";
-        public int BedtimeSnoozeMinutes = 15;
+        public bool BedtimeEnabled;
+        public string Bedtime;
+        public string WakeTime;
+        public int BedtimeWarnMinutes;
+        public string BedtimeCorner;
+        public int BedtimeSnoozeMinutes;
 
-        public bool StartWithWindows = false;
+        public bool StartWithWindows;
 
         /// <summary>True when no settings file existed yet (not saved: it's a property, not a field).</summary>
         public bool FirstRun { get; private set; }
@@ -90,34 +93,75 @@ namespace ScreenBreak
             catch (Exception) { return false; }
         }
 
+        private static Settings defaults;
+
+        /// <summary>The defaults from config\defaults.ini, embedded in the exe by build.ps1.</summary>
+        public static Settings Defaults
+        {
+            get
+            {
+                if (defaults == null) defaults = LoadDefaults();
+                return defaults;
+            }
+        }
+
+        private static Settings LoadDefaults()
+        {
+            string[] lines;
+            using (Stream res = typeof(Settings).Assembly.GetManifestResourceStream("defaults.ini"))
+            {
+                if (res == null) throw new InvalidOperationException("defaults.ini is not embedded in the exe. Build with build.ps1.");
+                using (var reader = new StreamReader(res))
+                    lines = reader.ReadToEnd().Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            }
+            var s = new Settings();
+            var found = Read(s, lines);
+            // A missing or unreadable default would silently become 0, false or null, so fail loudly instead.
+            foreach (FieldInfo f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance))
+                if (!found.Contains(f.Name)) throw new InvalidOperationException("defaults.ini has no valid value for " + f.Name);
+            TimeSpan t;
+            if (!TryParseTime(s.Bedtime, out t) || !TryParseTime(s.WakeTime, out t) || Array.IndexOf(Corners, s.BedtimeCorner) < 0)
+                throw new InvalidOperationException("defaults.ini has an invalid bedtime, wake-up time or corner");
+            return s;
+        }
+
         public static Settings Load()
         {
-            var s = new Settings();
+            Settings s = Defaults.Clone();
             s.FirstRun = !File.Exists(FilePath);
             try
             {
                 // Anything bigger than a few KB isn't a settings file we wrote; ignore it.
                 if (File.Exists(FilePath) && new FileInfo(FilePath).Length < 64 * 1024)
-                {
-                    foreach (string line in File.ReadAllLines(FilePath))
-                    {
-                        int eq = line.IndexOf('=');
-                        if (eq <= 0 || line.StartsWith("#")) continue;
-                        FieldInfo f = typeof(Settings).GetField(line.Substring(0, eq).Trim(), BindingFlags.Public | BindingFlags.Instance);
-                        if (f == null) continue;
-                        string v = line.Substring(eq + 1).Trim();
-                        int i;
-                        bool b;
-                        if (f.FieldType == typeof(int) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) f.SetValue(s, i);
-                        else if (f.FieldType == typeof(bool) && bool.TryParse(v, out b)) f.SetValue(s, b);
-                        else if (f.FieldType == typeof(string)) f.SetValue(s, v);
-                    }
-                }
+                    Read(s, File.ReadAllLines(FilePath));
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
             s.Clamp();
             return s;
+        }
+
+        /// <summary>Applies key=value lines to <paramref name="s"/>, skipping unknown keys and bad values.
+        /// Returns the names that were set.</summary>
+        private static HashSet<string> Read(Settings s, string[] lines)
+        {
+            var found = new HashSet<string>();
+            foreach (string line in lines)
+            {
+                int eq = line.IndexOf('=');
+                if (eq <= 0 || line.StartsWith("#")) continue;
+                FieldInfo f = typeof(Settings).GetField(line.Substring(0, eq).Trim(), BindingFlags.Public | BindingFlags.Instance);
+                if (f == null) continue;
+                string v = line.Substring(eq + 1).Trim();
+                int i;
+                bool b;
+                if (f.FieldType == typeof(int) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out i)) f.SetValue(s, i);
+                else if (f.FieldType == typeof(bool) && bool.TryParse(v, out b)) f.SetValue(s, b);
+                else if (f.FieldType == typeof(string)) f.SetValue(s, v);
+                else continue;
+                found.Add(f.Name);
+            }
+            return found;
         }
 
         public void Save()
@@ -142,9 +186,9 @@ namespace ScreenBreak
             DailyLimitRepeatMinutes = Clamp(DailyLimitRepeatMinutes, 5, 240);
             BedtimeWarnMinutes = Clamp(BedtimeWarnMinutes, 5, 480);
             BedtimeSnoozeMinutes = Clamp(BedtimeSnoozeMinutes, 1, 120);
-            Bedtime = ParseTime(Bedtime, new TimeSpan(22, 30, 0)).ToString(@"hh\:mm");
-            WakeTime = ParseTime(WakeTime, new TimeSpan(7, 0, 0)).ToString(@"hh\:mm");
-            if (Array.IndexOf(Corners, BedtimeCorner) < 0) BedtimeCorner = "BottomRight";
+            Bedtime = BedtimeOfDay.ToString(@"hh\:mm");
+            WakeTime = WakeTimeOfDay.ToString(@"hh\:mm");
+            if (Array.IndexOf(Corners, BedtimeCorner) < 0) BedtimeCorner = Defaults.BedtimeCorner;
             if (!IsSafeBackground(BackgroundImage))
             {
                 BackgroundImage = "";
@@ -152,12 +196,24 @@ namespace ScreenBreak
             }
         }
 
+        /// <summary>Bedtime as a time of day, or the default bedtime if the text is invalid.</summary>
+        public TimeSpan BedtimeOfDay { get { return ParseTime(Bedtime, ParseTime(Defaults.Bedtime, TimeSpan.Zero)); } }
+
+        /// <summary>Wake-up time as a time of day, or the default wake-up time if the text is invalid.</summary>
+        public TimeSpan WakeTimeOfDay { get { return ParseTime(WakeTime, ParseTime(Defaults.WakeTime, TimeSpan.Zero)); } }
+
         public static TimeSpan ParseTime(string text, TimeSpan fallback)
         {
+            TimeSpan t;
+            return TryParseTime(text, out t) ? t : fallback;
+        }
+
+        private static bool TryParseTime(string text, out TimeSpan time)
+        {
             DateTime t;
-            if (DateTime.TryParseExact(text ?? "", new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out t))
-                return t.TimeOfDay;
-            return fallback;
+            bool ok = DateTime.TryParseExact(text ?? "", new[] { "H:mm", "HH:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out t);
+            time = ok ? t.TimeOfDay : TimeSpan.Zero;
+            return ok;
         }
 
         private static int Clamp(int v, int min, int max)

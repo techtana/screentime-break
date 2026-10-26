@@ -72,6 +72,10 @@ This makes two files in `bin\`:
 
 `.\build.ps1 -Icon` also redraws `assets\ScreenBreak.ico` from `tools\IconGen.cs`.
 
+The default settings a new user starts with are in `config\defaults.ini`. The build puts
+that file inside `ScreenBreak.exe`, so edit it and rebuild to change the defaults. Every
+setting must be listed there, or the app won't start.
+
 If PowerShell scripts are blocked on your PC, run them for this window only:
 
 ```powershell
