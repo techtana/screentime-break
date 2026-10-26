@@ -9,6 +9,13 @@ namespace ScreenBreak
         [STAThread]
         private static void Main(string[] args)
         {
+            Native.HardenDllSearch();
+
+            // Log unexpected errors and keep running instead of showing the .NET crash dialog.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (sender, e) => Log.Error("UI thread", e.Exception);
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) => Log.Error("Fatal", e.ExceptionObject as Exception ?? new Exception("unknown"));
+
             bool createdNew;
             using (var mutex = new Mutex(true, @"Local\ScreenBreak.SingleInstance", out createdNew))
             {

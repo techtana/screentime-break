@@ -63,6 +63,20 @@ namespace ScreenBreak
             tray.DoubleClick += delegate { ShowSettings(); };
 
             bypass.Confirmed += OnBypass;
+            if (s.FirstRun && !startWithPreview)
+            {
+                // Adding a startup app changes the user's Windows experience, so ask first.
+                // A hidden topmost owner keeps the question from opening behind other windows.
+                using (var owner = new Form { TopMost = true, ShowInTaskbar = false })
+                {
+                    owner.CreateControl();
+                    s.StartWithWindows = MessageBox.Show(owner,
+                        "Start ScreenBreak automatically when you sign in to Windows?\n\nYou can change this later in Settings.",
+                        "ScreenBreak", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                }
+                try { s.Save(); }
+                catch (Exception ex) { Log.Error("Saving settings", ex); }
+            }
             ApplyAutostart();
 
             timer = new Timer { Interval = 1000 };
@@ -374,15 +388,24 @@ namespace ScreenBreak
         private void LoadBackground()
         {
             if (background != null) { background.Dispose(); background = null; }
-            if (!s.UseCustomBackground || !File.Exists(s.BackgroundImage)) return;
+            if (!s.UseCustomBackground || !Settings.IsSafeBackground(s.BackgroundImage)) return;
             try
             {
-                // Copy into memory so the file isn't locked.
+                // Copy into memory so the file isn't locked, and cap the size: no screen
+                // needs more than 4K, and a huge image would waste a lot of memory.
                 using (var stream = new MemoryStream(File.ReadAllBytes(s.BackgroundImage)))
-                using (Image img = Image.FromStream(stream))
-                    background = new Bitmap(img);
+                using (Image img = Image.FromStream(stream, false, true))
+                {
+                    const int maxSide = 3840;
+                    double scale = Math.Min(1.0, (double)maxSide / Math.Max(img.Width, img.Height));
+                    background = new Bitmap(img, Math.Max(1, (int)(img.Width * scale)), Math.Max(1, (int)(img.Height * scale)));
+                }
             }
-            catch (Exception) { background = null; }
+            catch (Exception ex)
+            {
+                Log.Error("Loading background", ex);
+                background = null;
+            }
         }
 
         private void CleanupOldBackgrounds()

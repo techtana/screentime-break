@@ -44,6 +44,20 @@ namespace ScreenBreak
             return unchecked(now - info.dwTime) / 1000.0;
         }
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetDefaultDllDirectories(uint flags);
+
+        /// <summary>
+        /// Load DLLs only from System32, never from the exe's folder or the current directory,
+        /// so a DLL planted next to the exe (e.g. in Downloads) can't be loaded.
+        /// </summary>
+        public static void HardenDllSearch()
+        {
+            const uint LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x800;
+            try { SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32); }
+            catch (EntryPointNotFoundException) { }
+        }
+
         public static void BringToTop(IntPtr hwnd)
         {
             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);

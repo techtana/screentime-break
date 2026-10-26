@@ -34,7 +34,8 @@ Run **`ScreenBreak-Setup.exe`** and click **Install**.
 
 - It installs for your Windows account only, to `%LOCALAPPDATA%\Programs\ScreenBreak`,
   so it needs no admin rights.
-- It adds a Start Menu shortcut, and can add a desktop shortcut and start ScreenBreak with Windows.
+- It adds a Start Menu shortcut. If you tick the boxes, it also adds a desktop shortcut and
+  starts ScreenBreak with Windows. Both are off unless you choose them.
 - Running a newer setup over an old install updates it and keeps your settings.
 - To remove it: **Settings > Apps > Installed apps > ScreenBreak > Uninstall**. You'll be
   asked whether to also delete your settings and screen-time history.
@@ -46,7 +47,8 @@ Setup also runs from the command line, for scripted installs:
 
 | Command | What it does |
 |---|---|
-| `ScreenBreak-Setup.exe /quiet` | Install silently, with start-with-Windows on |
+| `ScreenBreak-Setup.exe /quiet` | Install silently. The app asks about starting with Windows on its first run |
+| `ScreenBreak-Setup.exe /quiet /autostart` | Install silently and start with Windows |
 | `uninstall.exe /uninstall /quiet` | Remove silently and keep your settings (run it from the install folder) |
 | `uninstall.exe /uninstall /quiet /purge` | Remove silently and delete settings and history |
 
@@ -80,7 +82,8 @@ To ship a new version, change the version numbers in `src\AssemblyInfo.cs` and
 - Right-click the icon to see status, take a break now, preview the popup, or open settings.
 - To try the popup right away, run `ScreenBreak.exe --preview` (20 s ramp, 15 s break).
   Settings also has an **Apply & preview** button.
-- To start it automatically, tick **Start ScreenBreak when I sign in to Windows** in settings.
+- On first run it asks whether to start with Windows. You can change that any time with
+  **Start ScreenBreak when I sign in to Windows** in settings.
 
 Settings and logs are stored in `%APPDATA%\ScreenBreak\`:
 
@@ -89,6 +92,9 @@ Settings and logs are stored in `%APPDATA%\ScreenBreak\`:
 | `settings.ini` | All settings (plain text, editable) |
 | `usage.log` | One timestamp per active minute, last 24 h only |
 | `skips.log` | One timestamp per skip, last 24 h only |
+| `error.log` | Details of unexpected errors, if any (capped at 256 KB) |
+
+Nothing ever leaves your PC. The app has no network access. See [PRIVACY.md](PRIVACY.md).
 
 ## Good to know
 
@@ -100,3 +106,9 @@ Settings and logs are stored in `%APPDATA%\ScreenBreak\`:
   counted. A gap longer than the break length (for example a 10 min video with no input)
   also resets the "time until next break".
 - Exiting from the tray menu turns everything off. ScreenBreak is a nudge, not a lock.
+
+## Publishing
+
+Code signing, the Microsoft Store checklist and the security hardening are covered in
+[docs/PUBLISHING.md](docs/PUBLISHING.md). `build.ps1 -CertThumbprint <thumbprint>` signs
+both exes, and every build writes `bin\SHA256SUMS.txt`.

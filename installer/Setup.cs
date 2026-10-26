@@ -1,7 +1,7 @@
 // ScreenBreak installer / uninstaller. ScreenBreak.exe is embedded as a resource.
 //
 //   ScreenBreak-Setup.exe               install (or upgrade) with a small dialog
-//   ScreenBreak-Setup.exe /quiet        install silently (start with Windows on)
+//   ScreenBreak-Setup.exe /quiet        install silently (add /autostart to start with Windows)
 //   uninstall.exe /uninstall [/quiet]   remove; /quiet keeps settings unless /purge is given
 //
 // Installs per user to %LOCALAPPDATA%\Programs\ScreenBreak, so no admin rights are needed.
@@ -14,6 +14,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 [assembly: AssemblyTitle("ScreenBreak Setup")]
 [assembly: AssemblyProduct("ScreenBreak")]
 [assembly: AssemblyVersion("1.0.0.0")]
@@ -45,17 +46,27 @@ namespace ScreenBreakSetup
                 Assembly.GetExecutingAssembly(), typeof(AssemblyInformationalVersionAttribute))).InformationalVersion; }
         }
 
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetDefaultDllDirectories(uint flags);
+
         [STAThread]
         private static int Main(string[] args)
         {
+            // Setup usually runs from Downloads: never load DLLs planted next to it.
+            try { SetDefaultDllDirectories(0x800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */); }
+            catch (EntryPointNotFoundException) { }
+
             bool quiet = Has(args, "/quiet") || Has(args, "/S");
             Application.EnableVisualStyles();
             try
             {
+                CheckInstallDir();
                 if (Has(args, "/uninstall")) return Uninstall(quiet, Has(args, "/purge"));
                 if (quiet)
                 {
-                    Install(true, false, false);
+                    // No one is there to ask: add a startup entry only when explicitly requested,
+                    // otherwise leave the choice to the app's first-run question.
+                    Install(Has(args, "/autostart"), false, false, Has(args, "/autostart"));
                     return 0;
                 }
                 Application.Run(new InstallForm());
@@ -81,13 +92,15 @@ namespace ScreenBreakSetup
         {
             get
             {
-                if (!IsInstalled) return true;
+                if (!IsInstalled) return false; // opt-in on a fresh install
+
                 using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RunKey))
                     return k != null && k.GetValue(AppName) != null;
             }
         }
 
-        public static void Install(bool autostart, bool desktopShortcut, bool launch)
+        /// <param name="recordChoice">false = don't touch the startup setting (silent install without /autostart).</param>
+        public static void Install(bool autostart, bool desktopShortcut, bool launch, bool recordChoice)
         {
             StopRunningApp();
             Directory.CreateDirectory(InstallDir);
@@ -101,11 +114,14 @@ namespace ScreenBreakSetup
                 File.Copy(self, UninstallExe, true);
 
             // The app syncs the Run key from its own settings at startup, so record the choice there too.
-            SetAutostartSetting(autostart);
-            using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
+            if (recordChoice)
             {
-                if (autostart) k.SetValue(AppName, "\"" + AppExe + "\"");
-                else k.DeleteValue(AppName, false);
+                SetAutostartSetting(autostart);
+                using (RegistryKey k = Registry.CurrentUser.CreateSubKey(RunKey))
+                {
+                    if (autostart) k.SetValue(AppName, "\"" + AppExe + "\"");
+                    else k.DeleteValue(AppName, false);
+                }
             }
 
             CreateShortcut(StartMenuLink);
@@ -145,37 +161,76 @@ namespace ScreenBreakSetup
             bool removeData = purge || (!quiet && Directory.Exists(DataDir) && MessageBox.Show(
                 "Also delete your ScreenBreak settings and screen-time history?", "Uninstall ScreenBreak",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes);
-            if (removeData && Directory.Exists(DataDir)) Directory.Delete(DataDir, true);
+            if (removeData) DeleteDirectory(DataDir);
 
             DeleteFile(AppExe);
             string self = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
             if (self.StartsWith(InstallDir + "\\", StringComparison.OrdinalIgnoreCase))
             {
                 // A running exe can't delete itself: let a hidden cmd remove the folder once we've exited.
-                Process.Start(new ProcessStartInfo("cmd.exe", "/c ping 127.0.0.1 -n 3 >nul & rd /s /q \"" + InstallDir + "\"")
+                // Full path to cmd.exe, so a cmd.exe planted next to us can't be picked up instead;
+                // /d skips AutoRun commands, /v:off keeps ! literal.
+                if (SafeForCmd(InstallDir) && !IsLink(InstallDir))
                 {
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                    WorkingDirectory = Path.GetTempPath()
-                });
+                    string cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+                    Process.Start(new ProcessStartInfo(cmd, "/d /v:off /c ping 127.0.0.1 -n 3 >nul & rd /s /q \"" + InstallDir + "\"")
+                    {
+                        CreateNoWindow = true,
+                        UseShellExecute = false,
+                        WorkingDirectory = Environment.SystemDirectory
+                    });
+                }
+                // Otherwise only uninstall.exe is left behind in the folder.
             }
-            else if (Directory.Exists(InstallDir)) Directory.Delete(InstallDir, true);
+            else DeleteDirectory(InstallDir);
 
             if (!quiet) MessageBox.Show("ScreenBreak was removed.", "Uninstall ScreenBreak", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return 0;
         }
 
+        /// <summary>Stops only our installed copy, never an unrelated process that happens to share the name.</summary>
         private static void StopRunningApp()
         {
             foreach (Process p in Process.GetProcessesByName(AppName))
             {
                 try
                 {
+                    if (!string.Equals(Path.GetFullPath(p.MainModule.FileName), AppExe, StringComparison.OrdinalIgnoreCase)) continue;
                     p.Kill();
                     p.WaitForExit(5000);
                 }
-                catch (Exception) { }
+                catch (Exception) { } // not ours to inspect (other user / elevated), or already gone
+                finally { p.Dispose(); }
             }
+        }
+
+        /// <summary>The install path is used for recursive deletes, so refuse anything but a local folder.</summary>
+        private static void CheckInstallDir()
+        {
+            if (!Path.IsPathRooted(InstallDir) || InstallDir.StartsWith(@"\\") || !InstallDir.EndsWith(@"\Programs\ScreenBreak"))
+                throw new InvalidOperationException("Unexpected install location: " + InstallDir);
+        }
+
+        /// <summary>
+        /// True if the path can sit safely inside a quoted cmd argument. Characters like & and !
+        /// (legal in user names) are literal inside quotes with /v:off; only " and % are not.
+        /// </summary>
+        private static bool SafeForCmd(string path)
+        {
+            return path.IndexOfAny(new[] { '"', '%', '\r', '\n' }) < 0;
+        }
+
+        private static bool IsLink(string dir)
+        {
+            return Directory.Exists(dir) && (File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0;
+        }
+
+        /// <summary>Deletes a folder; if it is a junction/symlink, removes only the link, never its target.</summary>
+        private static void DeleteDirectory(string dir)
+        {
+            if (!Directory.Exists(dir)) return;
+            if (IsLink(dir)) Directory.Delete(dir, false);
+            else Directory.Delete(dir, true);
         }
 
         private static void SetAutostartSetting(bool on)
@@ -290,7 +345,7 @@ namespace ScreenBreakSetup
             Enabled = false;
             try
             {
-                Setup.Install(autostart.Checked, desktop.Checked, launch.Checked);
+                Setup.Install(autostart.Checked, desktop.Checked, launch.Checked, true);
                 MessageBox.Show(this,
                     "ScreenBreak is installed.\n\nLook for the green clock icon in the tray (it may be under the ^ arrow). " +
                     "Right-click it for settings. To remove it, use Settings > Apps > Installed apps.",

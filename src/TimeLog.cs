@@ -21,7 +21,8 @@ namespace ScreenBreak
             this.keep = keep;
             try
             {
-                if (File.Exists(path))
+                // A day of samples is ~30 KB; anything far bigger wasn't written by us.
+                if (File.Exists(path) && new FileInfo(path).Length < 2 * 1024 * 1024)
                 {
                     foreach (string line in File.ReadAllLines(path))
                     {
@@ -32,6 +33,7 @@ namespace ScreenBreak
                 }
             }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             items.Sort();
             Compact();
         }
@@ -41,6 +43,7 @@ namespace ScreenBreak
             items.Add(utc);
             try { File.AppendAllText(path, utc.Ticks + "\r\n"); }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             if (items.Count % 500 == 0) Compact();
         }
 
@@ -65,6 +68,7 @@ namespace ScreenBreak
             items.RemoveAll(t => t < cutoff);
             try { File.WriteAllLines(path, items.Select(t => t.Ticks.ToString()).ToArray()); }
             catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 }

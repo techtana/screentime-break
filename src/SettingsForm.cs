@@ -114,7 +114,7 @@ namespace ScreenBreak
             s.StartCoveragePercent = (int)startCoverage.Value;
             s.BreakMinutes = (int)breakLen.Value;
             s.BreakNeedsIdle = needIdle.Checked;
-            s.UseCustomBackground = customBg.Checked && File.Exists(bgPath);
+            s.UseCustomBackground = customBg.Checked && Settings.IsSafeBackground(bgPath);
             s.BackgroundImage = bgPath ?? "";
             s.BypassEnabled = bypass.Checked;
             s.DailyLimitEnabled = limitOn.Checked;
@@ -137,8 +137,11 @@ namespace ScreenBreak
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 try
                 {
-                    // Validate it's an image, then keep a private copy so moving the original doesn't break it.
-                    using (Image.FromFile(dlg.FileName)) { }
+                    // Validate it's a reasonably sized image, then keep a private copy so moving the original doesn't break it.
+                    if (new FileInfo(dlg.FileName).Length > Settings.MaxImageBytes)
+                        throw new InvalidDataException("The image is larger than 20 MB.");
+                    using (var stream = File.OpenRead(dlg.FileName))
+                    using (Image.FromStream(stream, false, true)) { }
                     string dest = Path.Combine(Settings.DataDir, "background-" + DateTime.Now.ToString("yyyyMMddHHmmss") + Path.GetExtension(dlg.FileName));
                     File.Copy(dlg.FileName, dest, true);
                     bgPath = dest;

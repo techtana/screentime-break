@@ -40,6 +40,9 @@ namespace ScreenBreak
 
         public bool StartWithWindows = false;
 
+        /// <summary>True when no settings file existed yet (not saved: it's a property, not a field).</summary>
+        public bool FirstRun { get; private set; }
+
         public static readonly string[] Corners = { "TopLeft", "TopRight", "BottomLeft", "BottomRight" };
 
         public static string DataDir
@@ -59,12 +62,36 @@ namespace ScreenBreak
             return (Settings)MemberwiseClone();
         }
 
+        public const long MaxImageBytes = 20 * 1024 * 1024;
+
+        /// <summary>
+        /// Background images must be our own copy inside DataDir. This blocks a tampered
+        /// settings.ini from pointing at a network path (which would leak the Windows login
+        /// hash to that server) or at an arbitrary file.
+        /// </summary>
+        public static bool IsSafeBackground(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path)) return false;
+                string full = Path.GetFullPath(path);
+                string dir = Path.GetFullPath(DataDir) + Path.DirectorySeparatorChar;
+                if (!full.StartsWith(dir, StringComparison.OrdinalIgnoreCase)) return false;
+                if (!Path.GetFileName(full).StartsWith("background-", StringComparison.OrdinalIgnoreCase)) return false;
+                var info = new FileInfo(full);
+                return info.Exists && info.Length <= MaxImageBytes && (info.Attributes & FileAttributes.ReparsePoint) == 0;
+            }
+            catch (Exception) { return false; }
+        }
+
         public static Settings Load()
         {
             var s = new Settings();
+            s.FirstRun = !File.Exists(FilePath);
             try
             {
-                if (File.Exists(FilePath))
+                // Anything bigger than a few KB isn't a settings file we wrote; ignore it.
+                if (File.Exists(FilePath) && new FileInfo(FilePath).Length < 64 * 1024)
                 {
                     foreach (string line in File.ReadAllLines(FilePath))
                     {
@@ -111,7 +138,11 @@ namespace ScreenBreak
             Bedtime = ParseTime(Bedtime, new TimeSpan(22, 30, 0)).ToString(@"hh\:mm");
             WakeTime = ParseTime(WakeTime, new TimeSpan(7, 0, 0)).ToString(@"hh\:mm");
             if (Array.IndexOf(Corners, BedtimeCorner) < 0) BedtimeCorner = "BottomRight";
-            if (BackgroundImage == null) BackgroundImage = "";
+            if (!IsSafeBackground(BackgroundImage))
+            {
+                BackgroundImage = "";
+                UseCustomBackground = false;
+            }
         }
 
         public static TimeSpan ParseTime(string text, TimeSpan fallback)
