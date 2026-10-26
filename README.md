@@ -18,6 +18,11 @@ that ships with Windows (.NET Framework 4.8).
 - **Works over games** running in borderless/windowed fullscreen (most modern games on
   Windows 11). It re-asserts "on top" every second. Xbox-style controllers count as
   activity.
+- **Pauses while you're away.** When there's been no input for a while (default 5 min),
+  or you lock the PC, the countdown to the next break pauses and screen time isn't
+  counted. It picks up again when you're back. Watching a video or using a full-screen
+  app without touching anything doesn't count as away. All of this can be changed under
+  **Away from the PC** in settings.
 - **Background:** soft green (easy on the eyes), or your own image.
 - **Skip button (optional):** a faint "skip" in the bottom-right corner of the popup on
   the main monitor. Click it twice to skip. Skips are counted. Skip more than once in 2 hours and a red
@@ -84,8 +89,10 @@ To ship a new version, change the version numbers in `src\AssemblyInfo.cs` and
   to keep it in view.
 - **Click the icon** to open the status panel. It shows the time to the next break (or
   what's left of the current one), screen time in the last 24 hours against your limit,
-  recent skips and bedtime. It has **Take a break now**, **Settings** and **Exit**
-  buttons. It closes when you click elsewhere or press Esc.
+  recent skips and bedtime. The **History** tab shows the last 7 days: screen time per
+  day as a chart (with your daily limit as a dashed line), and breaks taken and skips per
+  day. It has **Take a break now**, **Settings** and **Exit** buttons. It closes when you
+  click elsewhere or press Esc.
 - Opening ScreenBreak from the Start Menu while it's already running opens the same panel.
 - **Right-click the icon** for a quick menu: status, take a break now, preview the popup,
   settings and exit.
@@ -101,6 +108,7 @@ Settings and logs are stored in `%APPDATA%\ScreenBreak\`:
 | `settings.ini` | All settings (plain text, editable) |
 | `usage.log` | One timestamp per active minute, last 24 h only |
 | `skips.log` | One timestamp per skip, last 24 h only |
+| `history.csv` | Daily totals for the History tab (screen time, breaks, skips), last 90 days |
 | `error.log` | Details of unexpected errors, if any (capped at 256 KB) |
 
 Nothing ever leaves your PC. The app has no network access. See [PRIVACY.md](PRIVACY.md).
@@ -110,10 +118,12 @@ Nothing ever leaves your PC. The app has no network access. See [PRIVACY.md](PRI
 - **Exclusive fullscreen games** (an older setting some games still offer) draw over
   every other window, including this one. Switch the game to *borderless* or
   *windowed fullscreen* and the popup works.
-- A minute counts toward the daily limit if there was keyboard, mouse or controller input
-  in the last 5 minutes. Watching a video without touching anything for 5+ minutes isn't
-  counted. A gap longer than the break length (for example a 10 min video with no input)
-  also resets the "time until next break".
+- A minute counts toward the daily limit unless you're away (see **Away from the PC** in
+  settings: no input for 5 minutes by default, or the PC is locked). While a video plays
+  or a full-screen app is in front you aren't counted as away, even without input; this
+  uses the "keep the screen on" signal that video players and browsers send to Windows.
+- Being away for a full break length counts as a break and resets the "time until next
+  break".
 - Exiting from the tray menu turns everything off. ScreenBreak is a nudge, not a lock.
 
 ## Publishing

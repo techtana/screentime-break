@@ -1,6 +1,6 @@
 # ScreenBreak privacy policy
 
-_Last updated: 25 October 2026_
+_Last updated: 26 October 2026_
 
 ScreenBreak is a screen-time break reminder for Windows. This policy explains what it
 stores and what it does not do.
@@ -15,11 +15,14 @@ ScreenBreak keeps a small amount of data **only on your own PC**, in
 | `settings.ini` | Your settings, such as break length and bedtime | Until you change or delete it |
 | `usage.log` | One timestamp for each minute you were using the PC | Last 24 hours only |
 | `skips.log` | One timestamp each time you skip a break | Last 24 hours only |
+| `history.csv` | One line per day: minutes of screen time, breaks taken, breaks skipped | Last 90 days only |
 | `background-*.jpg/png` | A copy of the background image you chose, if any | Until you choose another or uninstall |
 | `error.log` | Technical details of unexpected errors, if any | Capped at 256 KB |
 
 To tell whether you're using the PC, ScreenBreak checks **how long ago** the last
-keyboard, mouse or game-controller input happened. It never records which keys you
+keyboard, mouse or game-controller input happened, whether the PC is locked, and whether
+any app has asked Windows to keep the screen on (as video players do) or is running full
+screen. It doesn't find out which app that is. It never records which keys you
 press, what you click, what's on your screen, or which apps you use.
 
 ## What ScreenBreak does not do

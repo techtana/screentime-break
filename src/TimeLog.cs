@@ -47,12 +47,15 @@ namespace ScreenBreak
             if (items.Count % 500 == 0) Compact();
         }
 
-        /// <summary>Adds a sample unless one already exists for the same minute.</summary>
-        public void AddMinute(DateTime utc)
+        public IEnumerable<DateTime> Items { get { return items; } }
+
+        /// <summary>Adds a sample unless one already exists for the same minute. Returns true if added.</summary>
+        public bool AddMinute(DateTime utc)
         {
             long minute = utc.Ticks / TimeSpan.TicksPerMinute;
-            if (items.Count > 0 && items[items.Count - 1].Ticks / TimeSpan.TicksPerMinute == minute) return;
+            if (items.Count > 0 && items[items.Count - 1].Ticks / TimeSpan.TicksPerMinute == minute) return false;
             Add(utc);
+            return true;
         }
 
         public int CountSince(DateTime utc)

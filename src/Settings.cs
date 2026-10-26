@@ -18,6 +18,12 @@ namespace ScreenBreak
         public int BreakMinutes = 10;
         public bool BreakNeedsIdle = true;
 
+        // What counts as "away from the PC": the break countdown pauses and screen time isn't counted.
+        public int AwayMinutes = 5;
+        public bool AwayCountsController = true;      // controller input means you're still there
+        public bool AwayWhenLocked = true;            // locking the PC means away right away
+        public bool NotAwayWhileWatching = true;      // a video or full-screen app keeps you "present"
+
         // Look
         public bool UseCustomBackground = false;
         public string BackgroundImage = "";
@@ -131,6 +137,7 @@ namespace ScreenBreak
             MaxOpacityPercent = Clamp(MaxOpacityPercent, StartOpacityPercent, 98);
             StartCoveragePercent = Clamp(StartCoveragePercent, 10, 100);
             BreakMinutes = Clamp(BreakMinutes, 1, 120);
+            AwayMinutes = Clamp(AwayMinutes, 1, 60);
             DailyLimitHours = Clamp(DailyLimitHours, 1, 24);
             DailyLimitRepeatMinutes = Clamp(DailyLimitRepeatMinutes, 5, 240);
             BedtimeWarnMinutes = Clamp(BedtimeWarnMinutes, 5, 480);

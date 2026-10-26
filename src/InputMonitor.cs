@@ -31,8 +31,9 @@ namespace ScreenBreak
         private static DateTime lastPadInput = DateTime.MinValue;
         private static bool xinputAvailable = true;
 
-        public static double IdleSeconds()
+        public static double IdleSeconds(bool countControllers)
         {
+            if (!countControllers) return Native.SystemIdleSeconds();
             PollControllers();
             double pad = (DateTime.UtcNow - lastPadInput).TotalSeconds;
             return Math.Min(Native.SystemIdleSeconds(), pad);
