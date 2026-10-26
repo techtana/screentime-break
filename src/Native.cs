@@ -44,6 +44,36 @@ namespace ScreenBreak
             return unchecked(now - info.dwTime) / 1000.0;
         }
 
+        [DllImport("powrprof.dll")]
+        private static extern uint CallNtPowerInformation(int level, IntPtr input, int inputSize, out uint output, int outputSize);
+
+        [DllImport("shell32.dll")]
+        private static extern int SHQueryUserNotificationState(out int state);
+
+        /// <summary>
+        /// True while something is being watched without input: an app asks Windows to keep the
+        /// display on (video players and browsers do while playing), or a full-screen app,
+        /// game or presentation is in front.
+        /// </summary>
+        public static bool IsWatching()
+        {
+            const int SystemExecutionState = 16;
+            const uint ES_DISPLAY_REQUIRED = 0x2;
+            const int QUNS_BUSY = 2, QUNS_RUNNING_D3D_FULL_SCREEN = 3, QUNS_PRESENTATION_MODE = 4;
+            try
+            {
+                uint state;
+                if (CallNtPowerInformation(SystemExecutionState, IntPtr.Zero, 0, out state, sizeof(uint)) == 0 &&
+                    (state & ES_DISPLAY_REQUIRED) != 0) return true;
+                int quns;
+                if (SHQueryUserNotificationState(out quns) == 0 &&
+                    (quns == QUNS_BUSY || quns == QUNS_RUNNING_D3D_FULL_SCREEN || quns == QUNS_PRESENTATION_MODE)) return true;
+            }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
+            return false;
+        }
+
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool SetDefaultDllDirectories(uint flags);
 

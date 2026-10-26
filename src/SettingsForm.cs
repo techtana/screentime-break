@@ -15,8 +15,9 @@ namespace ScreenBreak
         private readonly ToolTip tips = new ToolTip { AutoPopDelay = 15000 };
 
         private NumericUpDown work, ramp, startOpacity, maxOpacity, startCoverage, breakLen;
-        private NumericUpDown limitHours, limitRepeat, bedWarn, bedSnooze;
+        private NumericUpDown limitHours, limitRepeat, bedWarn, bedSnooze, awayMinutes;
         private CheckBox needIdle, customBg, bypass, limitOn, bedOn, autostart;
+        private CheckBox awayController, awayLocked, awayWatching;
         private DateTimePicker bedTime, wakeTime;
         private ComboBox corner;
         private Label bgLabel;
@@ -28,6 +29,7 @@ namespace ScreenBreak
             bgPath = s.BackgroundImage;
 
             Text = "ScreenBreak settings";
+            Icon = AppIcon.Load(SystemInformation.IconSize);
             Font = new Font("Segoe UI", 9f);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -56,6 +58,14 @@ namespace ScreenBreak
             Row("Break length (min)", breakLen = Num(1, 120, s.BreakMinutes),
                 "The popup closes by itself when the break is complete. Being away from the PC this long also counts as a break.");
             Full(needIdle = Check("Only count break time while I'm away from keyboard, mouse and controller", s.BreakNeedsIdle));
+
+            Header("Away from the PC");
+            Row("I'm away after no input for (min)", awayMinutes = Num(1, 60, s.AwayMinutes),
+                "While you're away the countdown to the next break pauses, and it isn't counted as screen time.");
+            Full(awayController = Check("Game controller input means I'm still using the PC", s.AwayCountsController));
+            Full(awayLocked = Check("Count me as away as soon as I lock the PC (Win+L)", s.AwayWhenLocked));
+            Full(awayWatching = Check("Not away while a video or full-screen app is playing, even without input", s.NotAwayWhileWatching));
+            tips.SetToolTip(awayWatching, "Uses Windows' \"keep the screen on\" signal that video players and browsers send while playing.");
 
             Header("Popup background");
             Full(customBg = Check("Use my own image (default: soft green that's easy on the eyes)", s.UseCustomBackground));
@@ -105,6 +115,19 @@ namespace ScreenBreak
             CancelButton = cancel;
         }
 
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // On short or scaled-up screens, scroll instead of running off the bottom.
+            Rectangle wa = Screen.FromControl(this).WorkingArea;
+            if (Height <= wa.Height) return;
+            Size size = new Size(Width + SystemInformation.VerticalScrollBarWidth, wa.Height);
+            AutoSize = false;
+            Size = size;
+            AutoScroll = true;
+            CenterToScreen();
+        }
+
         private void Apply(bool runPreview)
         {
             s.WorkMinutes = (int)work.Value;
@@ -114,6 +137,10 @@ namespace ScreenBreak
             s.StartCoveragePercent = (int)startCoverage.Value;
             s.BreakMinutes = (int)breakLen.Value;
             s.BreakNeedsIdle = needIdle.Checked;
+            s.AwayMinutes = (int)awayMinutes.Value;
+            s.AwayCountsController = awayController.Checked;
+            s.AwayWhenLocked = awayLocked.Checked;
+            s.NotAwayWhileWatching = awayWatching.Checked;
             s.UseCustomBackground = customBg.Checked && Settings.IsSafeBackground(bgPath);
             s.BackgroundImage = bgPath ?? "";
             s.BypassEnabled = bypass.Checked;
@@ -157,13 +184,13 @@ namespace ScreenBreak
 
         private void Header(string text)
         {
-            var l = new Label { Text = text, AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 14, 0, 4) };
+            var l = new Label { Text = text, AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 12, 0, 3) };
             Full(l);
         }
 
         private void Row(string label, Control c, string tip)
         {
-            var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(16, 6, 16, 6) };
+            var l = new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(16, 4, 16, 4) };
             c.Anchor = AnchorStyles.Left;
             table.Controls.Add(l, 0, table.RowCount);
             table.Controls.Add(c, 1, table.RowCount);
@@ -185,7 +212,7 @@ namespace ScreenBreak
 
         private CheckBox Check(string text, bool value)
         {
-            return new CheckBox { Text = text, Checked = value, AutoSize = true, Margin = new Padding(16, 4, 0, 4) };
+            return new CheckBox { Text = text, Checked = value, AutoSize = true, Margin = new Padding(16, 3, 0, 3) };
         }
 
         private static DateTimePicker Time(string hhmm)

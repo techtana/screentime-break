@@ -13,6 +13,7 @@ $root = $PSScriptRoot
 $bin = Join-Path $root 'bin'
 $ico = Join-Path $root 'assets\ScreenBreak.ico'
 $manifest = Join-Path $root 'src\app.manifest'
+$defaults = Join-Path $root 'config\defaults.ini'   # default settings, embedded in the exe
 $refs = '/r:System.dll', '/r:System.Core.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll'
 New-Item -ItemType Directory -Force $bin | Out-Null
 
@@ -33,7 +34,7 @@ if ($Icon) {
 }
 
 $sources = (Get-ChildItem (Join-Path $root 'src') -Filter *.cs).FullName
-& $csc /nologo /target:winexe /optimize+ "/out:$bin\ScreenBreak.exe" "/win32manifest:$manifest" "/win32icon:$ico" "/resource:$ico,ScreenBreak.ico" @refs $sources
+& $csc /nologo /target:winexe /optimize+ "/out:$bin\ScreenBreak.exe" "/win32manifest:$manifest" "/win32icon:$ico" "/resource:$ico,ScreenBreak.ico" "/resource:$defaults,defaults.ini" @refs $sources
 if ($LASTEXITCODE -ne 0) { throw "App build failed" }
 # Sign the app before it is embedded, so the copy the installer writes out is signed too.
 Sign "$bin\ScreenBreak.exe"

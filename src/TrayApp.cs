@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
@@ -14,7 +13,6 @@ namespace ScreenBreak
     {
         private enum Phase { Working, Ramp, Break, Bedtime }
 
-        private const int IdleForUsageSeconds = 300;   // no input for 5 min = not "using" the PC
         private const int AngrySeconds = 20;
         private const int LimitAlertSeconds = 60;
 
@@ -34,6 +32,7 @@ namespace ScreenBreak
 
         private readonly TimeLog usage;   // one sample per active minute, 24 h window
         private readonly TimeLog skips;   // one entry per skip, 24 h window
+        private readonly History history; // per-day totals for the History tab
 
         private Phase phase = Phase.Working;
         private double workSec, rampSec, breakSec;
@@ -42,12 +41,15 @@ namespace ScreenBreak
         private DateTime lastTick = DateTime.Now;
         private DateTime angryUntil, limitUntil, lastLimitAlert = DateTime.MinValue, snoozeUntil = DateTime.MinValue;
         private int angryCount;
+        private bool away, locked;
+        private DateTime lockedAt;
 
         public TrayApp(bool startWithPreview, EventWaitHandle showSignal)
         {
             s = Settings.Load();
             usage = new TimeLog(Path.Combine(Settings.DataDir, "usage.log"), TimeSpan.FromHours(24));
             skips = new TimeLog(Path.Combine(Settings.DataDir, "skips.log"), TimeSpan.FromHours(24));
+            history = new History(Path.Combine(Settings.DataDir, "history.csv"), usage, skips);
             LoadBackground();
 
             statusItem = new ToolStripMenuItem { Enabled = false };
@@ -63,7 +65,7 @@ namespace ScreenBreak
             menu.Items.Add("Exit", null, delegate { ExitThread(); });
             menu.Opening += delegate { RefreshStatus(); };
 
-            tray = new NotifyIcon { Icon = MakeIcon(), ContextMenuStrip = menu, Visible = true, Text = "ScreenBreak" };
+            tray = new NotifyIcon { Icon = AppIcon.Load(SystemInformation.SmallIconSize), ContextMenuStrip = menu, Visible = true, Text = "ScreenBreak" };
             tray.MouseClick += (sender, e) => { if (e.Button == MouseButtons.Left) statusPanel.Toggle(Snapshot()); };
 
             statusPanel.BreakNowClicked += delegate { StartBreakNow(); };
@@ -78,6 +80,7 @@ namespace ScreenBreak
             }, null, Timeout.Infinite, false);
 
             bypass.Confirmed += OnBypass;
+            SystemEvents.SessionSwitch += OnSessionSwitch;
             if (s.FirstRun && !startWithPreview)
             {
                 // Adding a startup app changes the user's Windows experience, so ask first.
@@ -112,13 +115,22 @@ namespace ScreenBreak
             double dt = Math.Max(0, (now - lastTick).TotalSeconds);
             lastTick = now;
 
-            double idle = InputMonitor.IdleSeconds();
+            // idle: time since the last input. awayIdle: the same, except it stays 0 while a video
+            // or full-screen app is playing, so watching without touching anything isn't "away".
+            double idle = InputMonitor.IdleSeconds(s.AwayCountsController);
             bool resumedFromSleep = dt > 120;
             if (resumedFromSleep) idle = Math.Max(idle, dt);
-            else if (idle < IdleForUsageSeconds) usage.AddMinute(DateTime.UtcNow);
+            bool lockedAway = locked && s.AwayWhenLocked;
+            if (lockedAway) idle = Math.Max(idle, (now - lockedAt).TotalSeconds);
+            double awayIdle = idle;
+            if (s.NotAwayWhileWatching && !lockedAway && !resumedFromSleep && idle >= 30 && Native.IsWatching()) awayIdle = 0;
+
+            bool wasAway = away;
+            away = resumedFromSleep || lockedAway || awayIdle >= s.AwayMinutes * 60.0;
+            if (!away && usage.AddMinute(DateTime.UtcNow)) history.AddMinute(now);
 
             UpdateBedtime(now);
-            if (phase != Phase.Bedtime) UpdateBreakCycle(dt, idle);
+            if (phase != Phase.Bedtime) UpdateBreakCycle(dt, idle, awayIdle, wasAway);
             UpdateAlerts(now);
             UpdateBypassButton();
 
@@ -138,30 +150,41 @@ namespace ScreenBreak
 
         // ---- break cycle -------------------------------------------------------
 
-        private void UpdateBreakCycle(double dt, double idle)
+        private void UpdateBreakCycle(double dt, double idle, double awayIdle, bool wasAway)
         {
             double needed = BreakTotal;
             switch (phase)
             {
                 case Phase.Working:
-                    // Being away for a full break length counts as a natural break.
-                    if (idle >= s.BreakMinutes * 60.0) workSec = 0;
+                    if (awayIdle >= s.BreakMinutes * 60.0)
+                    {
+                        // Being away for a full break length counts as a natural break.
+                        if (workSec > 0) history.AddAwayBreak(DateTime.Now);
+                        workSec = 0;
+                    }
+                    else if (away)
+                    {
+                        // The countdown pauses while you're away. It only knows you're away once the
+                        // "away" time has passed, so give back the time counted while you were already gone.
+                        if (!wasAway) workSec = Math.Max(0, workSec - Math.Max(0, awayIdle - dt));
+                    }
                     else workSec += dt;
                     if (workSec >= s.WorkMinutes * 60.0) StartRamp();
                     break;
 
                 case Phase.Ramp:
                     rampSec += dt;
-                    if (!preview && idle >= needed) { FinishBreak(); return; }
+                    if (!preview && awayIdle >= needed) { history.AddBreak(DateTime.Now); FinishBreak(); return; }
                     if (rampSec >= RampTotal) { phase = Phase.Break; breakSec = 0; }
                     break;
 
                 case Phase.Break:
                     if (preview || !s.BreakNeedsIdle || idle >= 2) breakSec += dt;
-                    if (!preview && idle >= needed) breakSec = needed;
+                    if (!preview && awayIdle >= needed) breakSec = needed;
                     if (breakSec >= needed)
                     {
                         bool wasPreview = preview;
+                        if (!wasPreview) history.AddBreak(DateTime.Now);
                         FinishBreak();
                         if (!wasPreview) tray.ShowBalloonTip(3000, "Break complete", "Nice! Next break in " + s.WorkMinutes + " min.", ToolTipIcon.Info);
                         return;
@@ -243,8 +266,8 @@ namespace ScreenBreak
                 return;
             }
 
-            TimeSpan bed = Settings.ParseTime(s.Bedtime, new TimeSpan(22, 30, 0));
-            TimeSpan wake = Settings.ParseTime(s.WakeTime, new TimeSpan(7, 0, 0));
+            TimeSpan bed = s.BedtimeOfDay;
+            TimeSpan wake = s.WakeTimeOfDay;
             bool inWindow = InWindow(now.TimeOfDay, bed, wake);
 
             if (inWindow && now >= snoozeUntil)
@@ -320,6 +343,7 @@ namespace ScreenBreak
             else return;
 
             skips.Add(DateTime.UtcNow);
+            history.AddSkip(now);
             int recent = skips.CountSince(DateTime.UtcNow.AddHours(-2));
             if (recent > 1)
             {
@@ -369,7 +393,7 @@ namespace ScreenBreak
                 case Phase.Ramp: status = "Break starts in " + Fmt(RampTotal - rampSec); break;
                 case Phase.Break: status = "On a break: " + Fmt(BreakTotal - breakSec) + " left"; break;
                 case Phase.Bedtime: status = "Bedtime"; break;
-                default: status = "Next break in " + Fmt(s.WorkMinutes * 60.0 - workSec); break;
+                default: status = (away ? "Paused (away): next break in " : "Next break in ") + Fmt(s.WorkMinutes * 60.0 - workSec); break;
             }
             int minutes = usage.CountSince(DateTime.UtcNow.AddHours(-24));
             int recentSkips = skips.CountSince(DateTime.UtcNow.AddHours(-2));
@@ -401,7 +425,7 @@ namespace ScreenBreak
                     st.Big = DateTime.Now.ToString("HH:mm");
                     break;
                 default:
-                    st.Headline = "Next break in";
+                    st.Headline = away ? "Paused while you're away. Next break in" : "Next break in";
                     st.Big = Fmt(s.WorkMinutes * 60.0 - workSec);
                     st.Progress = workSec / (s.WorkMinutes * 60.0);
                     break;
@@ -411,18 +435,26 @@ namespace ScreenBreak
             int minutes = usage.CountSince(DateTime.UtcNow.AddHours(-24));
             st.ScreenTime = FmtHours(minutes) + (s.DailyLimitEnabled ? " of " + s.DailyLimitHours + "h" : "");
             st.Skips = skips.CountSince(DateTime.UtcNow.AddHours(-2)).ToString();
+            st.Days = history.LastDays(7);
+            st.LimitMinutes = s.DailyLimitEnabled ? s.DailyLimitHours * 60 : 0;
 
             if (!s.BedtimeEnabled) st.Bedtime = "Off";
             else if (phase == Phase.Bedtime) st.Bedtime = "Now";
             else
             {
                 DateTime now = DateTime.Now;
-                DateTime next = now.Date + Settings.ParseTime(s.Bedtime, new TimeSpan(22, 30, 0));
+                DateTime next = now.Date + s.BedtimeOfDay;
                 if (next <= now) next = next.AddDays(1);
                 TimeSpan left = next - now;
                 st.Bedtime = s.Bedtime + " (in " + (int)left.TotalHours + "h " + left.Minutes.ToString("00") + "m)";
             }
             return st;
+        }
+
+        private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+        {
+            if (e.Reason == SessionSwitchReason.SessionLock) { locked = true; lockedAt = DateTime.Now; }
+            else if (e.Reason == SessionSwitchReason.SessionUnlock) locked = false;
         }
 
         private void ShowSettings()
@@ -499,6 +531,7 @@ namespace ScreenBreak
         protected override void ExitThreadCore()
         {
             timer.Stop();
+            SystemEvents.SessionSwitch -= OnSessionSwitch;
             showWait.Unregister(null);
             statusPanel.Dispose();
             main.Hide();
@@ -529,29 +562,6 @@ namespace ScreenBreak
         private static string FmtHours(int minutes)
         {
             return string.Format("{0}h {1:00}m", minutes / 60, minutes % 60);
-        }
-
-        private static Icon MakeIcon()
-        {
-            using (Stream ico = typeof(TrayApp).Assembly.GetManifestResourceStream("ScreenBreak.ico"))
-                if (ico != null) return new Icon(ico, SystemInformation.SmallIconSize);
-
-            // Fallback when built without the icon resource.
-            using (var bmp = new Bitmap(32, 32))
-            {
-                using (Graphics g = Graphics.FromImage(bmp))
-                {
-                    g.SmoothingMode = SmoothingMode.AntiAlias;
-                    using (var fill = new SolidBrush(Color.FromArgb(63, 125, 92))) g.FillEllipse(fill, 2, 2, 28, 28);
-                    using (var pen = new Pen(Color.FromArgb(243, 235, 211), 2.5f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-                    {
-                        g.DrawEllipse(pen, 3, 3, 26, 26);
-                        g.DrawLine(pen, 16, 16, 16, 8);
-                        g.DrawLine(pen, 16, 16, 22, 19);
-                    }
-                }
-                return Icon.FromHandle(bmp.GetHicon());
-            }
         }
     }
 }
