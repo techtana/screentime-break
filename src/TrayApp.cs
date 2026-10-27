@@ -28,7 +28,9 @@ namespace ScreenBreak
         private readonly OverlaySet main = new OverlaySet();
         private readonly OverlaySet alert = new OverlaySet();
         private readonly OverlaySet corner = new OverlaySet();
-        private readonly BypassForm bypass = new BypassForm();
+        private readonly ButtonSet<BypassForm> bypass;
+        private readonly ButtonSet<BreakNowForm> mainBreakNow, alertBreakNow, cornerBreakNow;
+        private OverlayStyle alertStyle;
 
         private readonly TimeLog usage;   // one sample per active minute, 24 h window
         private readonly TimeLog skips;   // one entry per skip, 24 h window
@@ -79,7 +81,10 @@ namespace ScreenBreak
                 catch (InvalidOperationException) { } // shutting down
             }, null, Timeout.Infinite, false);
 
-            bypass.Confirmed += OnBypass;
+            bypass = new ButtonSet<BypassForm>(delegate { var b = new BypassForm(); b.Confirmed += OnBypass; return b; });
+            mainBreakNow = NewBreakNowButtons();
+            alertBreakNow = NewBreakNowButtons();
+            cornerBreakNow = NewBreakNowButtons();
             SystemEvents.SessionSwitch += OnSessionSwitch;
             if (s.FirstRun && !startWithPreview)
             {
@@ -133,12 +138,16 @@ namespace ScreenBreak
             if (phase != Phase.Bedtime) UpdateBreakCycle(dt, idle, awayIdle, wasAway);
             UpdateAlerts(now);
             UpdateBypassButton();
+            UpdateBreakNowButtons();
 
-            // Bottom to top: break popup, alerts, bedtime corner, skip button.
+            // Bottom to top: break popup, alerts, bedtime corner, buttons.
             main.BringToTop();
             alert.BringToTop();
             corner.BringToTop();
-            if (bypass.Visible) Native.BringToTop(bypass.Handle);
+            mainBreakNow.BringToTop();
+            alertBreakNow.BringToTop();
+            cornerBreakNow.BringToTop();
+            bypass.BringToTop();
             if (statusPanel.Visible)
             {
                 Native.BringToTop(statusPanel.Handle);
@@ -317,17 +326,50 @@ namespace ScreenBreak
         private void UpdateBypassButton()
         {
             bool show = s.BypassEnabled && main.Visible && phase != Phase.Working;
-            if (!show) { bypass.HideButton(); return; }
+            if (!show) { bypass.Hide(); return; }
 
             Color top, bottom, text;
             OverlayForm.GetPalette(phase == Phase.Bedtime ? OverlayStyle.Night : OverlayStyle.Calm, out top, out bottom, out text);
             if (phase != Phase.Bedtime && background != null) bottom = Color.FromArgb(28, 28, 28);
-            bypass.SetColors(bottom, Color.FromArgb(Math.Min(255, bottom.R + 22), Math.Min(255, bottom.G + 22), Math.Min(255, bottom.B + 22)));
-            bypass.ShowIn(main.PrimaryRect);
+            bypass.ShowIn(main.Rects, bottom, Color.FromArgb(Math.Min(255, bottom.R + 22), Math.Min(255, bottom.G + 22), Math.Min(255, bottom.B + 22)));
+        }
+
+        private ButtonSet<BreakNowForm> NewBreakNowButtons()
+        {
+            return new ButtonSet<BreakNowForm>(delegate { var b = new BreakNowForm(); b.Clicked += OnBreakNowClicked; return b; });
+        }
+
+        /// <summary>Every reminder popup gets a "Take a break now" button, until a break or bedtime starts.</summary>
+        private void UpdateBreakNowButtons()
+        {
+            bool canBreak = phase == Phase.Working || phase == Phase.Ramp;
+            ShowBreakNow(mainBreakNow, main, phase == Phase.Ramp, OverlayStyle.Calm);
+            ShowBreakNow(alertBreakNow, alert, canBreak, alertStyle);
+            ShowBreakNow(cornerBreakNow, corner, canBreak, OverlayStyle.Corner);
+        }
+
+        private static void ShowBreakNow(ButtonSet<BreakNowForm> buttons, OverlaySet popup, bool show, OverlayStyle style)
+        {
+            if (!show || !popup.Visible) { buttons.Hide(); return; }
+            Color top, bottom, text;
+            OverlayForm.GetPalette(style, out top, out bottom, out text);
+            buttons.ShowIn(popup.Rects, text, top);
+        }
+
+        private void OnBreakNowClicked(object sender, EventArgs e)
+        {
+            // Taking the break answers the alert, so close it.
+            angryUntil = limitUntil = DateTime.MinValue;
+            alert.Hide();
+            StartBreakNow();
+            mainBreakNow.Hide();
+            alertBreakNow.Hide();
+            cornerBreakNow.Hide();
         }
 
         private void OnBypass(object sender, EventArgs e)
         {
+            bypass.Hide();
             DateTime now = DateTime.Now;
             if (phase == Phase.Bedtime)
             {
@@ -356,6 +398,7 @@ namespace ScreenBreak
         {
             if (now < angryUntil)
             {
+                alertStyle = OverlayStyle.Angry;
                 alert.Update(OverlayStyle.Angry, "I'm very NOT happy.", angryCount + " skips",
                     "You've skipped " + angryCount + " breaks in the last 2 hours.\nYour eyes, back and brain deserve better.",
                     0.9, 0.75, null);
@@ -373,6 +416,7 @@ namespace ScreenBreak
                 }
                 if (now < limitUntil)
                 {
+                    alertStyle = OverlayStyle.Alert;
                     alert.Update(OverlayStyle.Alert, s.DailyLimitHours + "-hour screen limit reached", FmtHours(minutes),
                         "That's your screen time in the last 24 hours. Time to wind down.\n" +
                         "This reminder repeats every " + s.DailyLimitRepeatMinutes + " min.",
@@ -538,6 +582,9 @@ namespace ScreenBreak
             alert.Hide();
             corner.Hide();
             bypass.Dispose();
+            mainBreakNow.Dispose();
+            alertBreakNow.Dispose();
+            cornerBreakNow.Dispose();
             if (settingsForm != null && !settingsForm.IsDisposed) settingsForm.Close();
             tray.Visible = false;
             tray.Dispose();

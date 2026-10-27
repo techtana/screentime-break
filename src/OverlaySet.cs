@@ -17,13 +17,14 @@ namespace ScreenBreak
         }
 
         private readonly List<OverlayForm> forms = new List<OverlayForm>();
+        private readonly List<Rectangle> rects = new List<Rectangle>();
         private Screen[] screens = new Screen[0];
         private int builtVersion = -1;
 
         public bool Visible { get { return forms.Count > 0; } }
 
-        /// <summary>Rectangle of the overlay on the primary monitor (where the Skip button goes).</summary>
-        public Rectangle PrimaryRect { get; private set; }
+        /// <summary>Rectangle of the overlay on each monitor (where its buttons go).</summary>
+        public IList<Rectangle> Rects { get { return rects; } }
 
         private void Ensure()
         {
@@ -31,7 +32,11 @@ namespace ScreenBreak
             Hide();
             builtVersion = displayVersion;
             screens = Screen.AllScreens;
-            foreach (Screen s in screens) forms.Add(new OverlayForm());
+            foreach (Screen s in screens)
+            {
+                forms.Add(new OverlayForm());
+                rects.Add(Rectangle.Empty);
+            }
         }
 
         /// <summary>Centered overlay covering <paramref name="coverage"/> (0..1) of each screen's area.</summary>
@@ -70,7 +75,7 @@ namespace ScreenBreak
             forms[i].SetContent(style, title, big, sub, bg);
             forms[i].SetOpacity(opacity);
             forms[i].Place(r);
-            if (screens[i].Primary || i == 0) PrimaryRect = r;
+            rects[i] = r;
         }
 
         public void BringToTop()
@@ -86,6 +91,7 @@ namespace ScreenBreak
                 f.Dispose();
             }
             forms.Clear();
+            rects.Clear();
         }
     }
 }

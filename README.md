@@ -25,8 +25,11 @@ that ships with Windows (.NET Framework 4.8).
   **Away from the PC** in settings.
 - **Background:** soft green (easy on the eyes), or your own image.
 - **Skip button (optional):** a faint "skip" in the bottom-right corner of the popup on
-  the main monitor. Click it twice to skip. Skips are counted. Skip more than once in 2 hours and a red
+  every monitor. Click it twice to skip. Skips are counted. Skip more than once in 2 hours and a red
   "I'm very NOT happy" alert appears.
+- **Take a break now:** the "break coming up" popup, the daily-limit and skip alerts, and the
+  bedtime countdown all have a **Take a break now** button, on every monitor. Clicking it
+  starts the break right away and closes the alert.
 - **Daily limit (optional):** when screen time in the last 24 hours reaches the limit
   (default 4 h), an orange alert shows for a minute, repeating every 30 min.
 - **Bedtime (optional):** starting 2 hours before bedtime, a small countdown sits in a
