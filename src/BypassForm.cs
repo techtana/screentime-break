@@ -9,7 +9,7 @@ namespace ScreenBreak
     /// Deliberately hard-to-see "skip" button. Needs two clicks within 5 seconds so it
     /// can't be hit by accident while working behind the overlay. Never takes focus.
     /// </summary>
-    internal class BypassForm : Form
+    internal class BypassForm : Form, IPopupButton
     {
         public event EventHandler Confirmed;
 
